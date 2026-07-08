@@ -51,6 +51,7 @@ struct Output {
 impl Cli {
     pub fn run(self) -> ExitCode {
         let common = self.common;
+        let json = common.json;
         run(&common, META, move || {
             let regression = Regression::parse(&self.regression).ok_or_else(|| {
                 RsomicsError::InvalidInput(format!(
@@ -68,7 +69,7 @@ impl Cli {
             let x = read_series(self.series.as_ref())?;
             let result = kpss(&x, regression, &nlags)?;
 
-            Ok(Output {
+            let out = Output {
                 kpss_stat: result.kpss_stat,
                 pvalue: result.pvalue,
                 lags: result.lags,
@@ -76,7 +77,17 @@ impl Cli {
                 crit_5pct: result.crit_5pct,
                 crit_2_5pct: result.crit_2_5pct,
                 crit_1pct: result.crit_1pct,
-            })
+            };
+            if !json {
+                println!("kpss_stat\t{}", out.kpss_stat);
+                println!("pvalue\t{}", out.pvalue);
+                println!("lags\t{}", out.lags);
+                println!("crit_10pct\t{}", out.crit_10pct);
+                println!("crit_5pct\t{}", out.crit_5pct);
+                println!("crit_2_5pct\t{}", out.crit_2_5pct);
+                println!("crit_1pct\t{}", out.crit_1pct);
+            }
+            Ok(out)
         })
     }
 }
