@@ -24,7 +24,7 @@ fn assert_close(got: f64, want: f64, tol: f64, label: &str) {
 // kpss(rw, c, auto): stat=0.7001396636588891 pvalue=0.013532757849191895 lags=9
 #[test]
 fn rw_c_auto() {
-    let r = kpss(&RW, Regression::C, &NLags::Auto);
+    let r = kpss(&RW, Regression::C, &NLags::Auto).unwrap();
     assert_close(
         r.kpss_stat,
         0.7001396636588891,
@@ -42,7 +42,7 @@ fn rw_c_auto() {
 // kpss(wn, c, auto): stat=0.0743681910503493 pvalue=0.1 lags=3
 #[test]
 fn wn_c_auto() {
-    let r = kpss(&WN, Regression::C, &NLags::Auto);
+    let r = kpss(&WN, Regression::C, &NLags::Auto).unwrap();
     assert_close(
         r.kpss_stat,
         0.0743681910503493,
@@ -56,7 +56,7 @@ fn wn_c_auto() {
 // kpss(rw, ct, auto): stat=0.3664054315050512 pvalue=0.01 lags=9
 #[test]
 fn rw_ct_auto() {
-    let r = kpss(&RW, Regression::Ct, &NLags::Auto);
+    let r = kpss(&RW, Regression::Ct, &NLags::Auto).unwrap();
     assert_close(
         r.kpss_stat,
         0.3664054315050512,
@@ -74,7 +74,7 @@ fn rw_ct_auto() {
 // kpss(ar1, c, auto): stat=0.0775610775880112 pvalue=0.1 lags=6
 #[test]
 fn ar1_c_auto() {
-    let r = kpss(&AR1, Regression::C, &NLags::Auto);
+    let r = kpss(&AR1, Regression::C, &NLags::Auto).unwrap();
     assert_close(
         r.kpss_stat,
         0.0775610775880112,
@@ -88,7 +88,7 @@ fn ar1_c_auto() {
 // kpss(rw, c, legacy): stat=0.480572984722357 pvalue=0.04604212055802771 lags=15
 #[test]
 fn rw_c_legacy() {
-    let r = kpss(&RW, Regression::C, &NLags::Legacy);
+    let r = kpss(&RW, Regression::C, &NLags::Legacy).unwrap();
     assert_close(
         r.kpss_stat,
         0.480572984722357,
@@ -102,7 +102,7 @@ fn rw_c_legacy() {
 // kpss(rw, c, nlags=5): stat=1.1054946417223224 pvalue=0.01 lags=5
 #[test]
 fn rw_c_fixed5() {
-    let r = kpss(&RW, Regression::C, &NLags::Fixed(5));
+    let r = kpss(&RW, Regression::C, &NLags::Fixed(5)).unwrap();
     assert_close(
         r.kpss_stat,
         1.1054946417223224,
@@ -116,7 +116,7 @@ fn rw_c_fixed5() {
 // kpss(wn, ct, auto): stat=0.06212221588515339 pvalue=0.1 lags=3
 #[test]
 fn wn_ct_auto() {
-    let r = kpss(&WN, Regression::Ct, &NLags::Auto);
+    let r = kpss(&WN, Regression::Ct, &NLags::Auto).unwrap();
     assert_close(
         r.kpss_stat,
         0.06212221588515339,
@@ -125,4 +125,38 @@ fn wn_ct_auto() {
     );
     assert_close(r.pvalue, 0.1, 1e-10, "wn_ct_auto pvalue");
     assert_eq!(r.lags, 3, "wn_ct_auto lags");
+}
+
+// Degenerate inputs where statsmodels.tsa.stattools.kpss raises: we fail loud
+// (Err) rather than emitting a NaN statistic with a success status, or panicking.
+#[test]
+fn rejects_too_short() {
+    assert!(kpss(&[1.0, 2.0], Regression::C, &NLags::Auto).is_err());
+    assert!(kpss(&[1.0], Regression::C, &NLags::Auto).is_err());
+}
+
+#[test]
+fn rejects_non_finite() {
+    assert!(kpss(&[1.0, 2.0, f64::NAN, 4.0, 5.0], Regression::C, &NLags::Auto).is_err());
+    assert!(
+        kpss(
+            &[1.0, 2.0, f64::INFINITY, 4.0, 5.0],
+            Regression::C,
+            &NLags::Auto
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn rejects_fixed_nlags_ge_nobs() {
+    assert!(kpss(&[1.0, 2.0, 3.0, 4.0, 5.0], Regression::C, &NLags::Fixed(10)).is_err());
+    assert!(kpss(&[1.0, 2.0, 3.0, 4.0, 5.0], Regression::C, &NLags::Fixed(5)).is_err());
+}
+
+#[test]
+fn rejects_zero_variance() {
+    let constant = [5.0_f64; 20];
+    assert!(kpss(&constant, Regression::C, &NLags::Auto).is_err());
+    assert!(kpss(&constant, Regression::Ct, &NLags::Auto).is_err());
 }

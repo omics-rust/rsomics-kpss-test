@@ -66,7 +66,7 @@ impl Cli {
             })?;
 
             let x = read_series(self.series.as_ref())?;
-            let result = kpss(&x, regression, &nlags);
+            let result = kpss(&x, regression, &nlags)?;
 
             Ok(Output {
                 kpss_stat: result.kpss_stat,

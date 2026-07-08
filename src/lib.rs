@@ -10,6 +10,8 @@
 //! 4. Test statistic: η = (Σ S_t²) / (n² · σ²).
 //! 5. P-value: linear interpolation in Kwiatkowski et al. (1992) Table 1.
 
+use rsomics_common::{Result, RsomicsError};
+
 /// Regression type for the KPSS detrending step.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Regression {
@@ -70,10 +72,22 @@ pub struct KpssResult {
 
 /// Perform the KPSS stationarity test.
 ///
-/// Matches `statsmodels.tsa.stattools.kpss` output exactly.
-pub fn kpss(x: &[f64], regression: Regression, nlags: &NLags) -> KpssResult {
+/// Matches `statsmodels.tsa.stattools.kpss` output exactly on valid input, and
+/// fails loud where statsmodels raises: non-finite values, fewer than three
+/// observations, a fixed lag count `>= nobs`, or a zero residual variance
+/// (constant / perfectly detrended series, where the statistic is undefined).
+pub fn kpss(x: &[f64], regression: Regression, nlags: &NLags) -> Result<KpssResult> {
     let nobs = x.len();
-    assert!(nobs >= 3, "kpss: series must have at least 3 observations");
+    if nobs < 3 {
+        return Err(RsomicsError::InvalidInput(format!(
+            "kpss: series must have at least 3 observations, got {nobs}"
+        )));
+    }
+    if let Some(&bad) = x.iter().find(|v| !v.is_finite()) {
+        return Err(RsomicsError::InvalidInput(format!(
+            "kpss: input contains a non-finite value ({bad})"
+        )));
+    }
 
     // Step 1: detrend residuals.
     let resids = detrend(x, regression);
@@ -103,10 +117,11 @@ pub fn kpss(x: &[f64], regression: Regression, nlags: &NLags) -> KpssResult {
             l.min(nobs - 1)
         }
         NLags::Fixed(l) => {
-            assert!(
-                *l < nobs,
-                "nlags ({l}) must be < number of observations ({nobs})"
-            );
+            if *l >= nobs {
+                return Err(RsomicsError::InvalidInput(format!(
+                    "nlags ({l}) must be < number of observations ({nobs})"
+                )));
+            }
             *l
         }
     };
@@ -124,6 +139,18 @@ pub fn kpss(x: &[f64], regression: Regression, nlags: &NLags) -> KpssResult {
     // Step 4: HAC variance σ² (eq. 10, p. 164).
     let sigma_sq = sigma_est_kpss(&resids, nobs, lags);
 
+    // A constant or perfectly detrended series has zero residual variance, so
+    // η/σ² is 0/0 = NaN and the statistic is undefined. statsmodels raises here
+    // (regression="c") or returns lstsq rounding noise (regression="ct"); we
+    // fail loud rather than emit a NaN dressed as a success.
+    if sigma_sq == 0.0 {
+        return Err(RsomicsError::InvalidInput(
+            "kpss: residual variance is zero (series is constant or perfectly \
+             detrended); the test statistic is undefined"
+                .into(),
+        ));
+    }
+
     let kpss_stat = eta / sigma_sq;
 
     // Step 5: p-value by linear interpolation in crit table.
@@ -131,7 +158,7 @@ pub fn kpss(x: &[f64], regression: Regression, nlags: &NLags) -> KpssResult {
     // statsmodels uses crit as xp and pvals as fp.
     let pvalue = interp(kpss_stat, &crit_arr, &pvals);
 
-    KpssResult {
+    Ok(KpssResult {
         kpss_stat,
         pvalue,
         lags,
@@ -139,7 +166,7 @@ pub fn kpss(x: &[f64], regression: Regression, nlags: &NLags) -> KpssResult {
         crit_5pct: crit[1],
         crit_2_5pct: crit[2],
         crit_1pct: crit[3],
-    }
+    })
 }
 
 /// Detrend the series according to the regression type.
